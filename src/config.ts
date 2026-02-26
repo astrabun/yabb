@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import {z} from 'zod';
+import {config as dotenvxConfig} from '@dotenvx/dotenvx';
 
 const BridgeSchema = z.object({
   discord_channel_id: z.string(),
@@ -28,6 +29,7 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
+  dotenvxConfig();
   // Load tokens from environment
   const envResult = EnvSchema.safeParse(process.env);
   if (!envResult.success) {
@@ -37,10 +39,10 @@ export function loadConfig(): Config {
     process.exit(1);
   }
 
-  // Load bridge mappings from config.yaml
-  const configPath = path.resolve(process.env.CONFIG_PATH ?? 'config.yaml');
+  // Load bridge mappings from config.yml
+  const configPath = path.resolve(process.env.CONFIG_PATH ?? 'config.yml');
   if (!fs.existsSync(configPath)) {
-    console.error(`[config] config.yaml not found at: ${configPath}`);
+    console.error(`[config] config.yml not found at: ${configPath}`);
     process.exit(1);
   }
 
@@ -48,7 +50,7 @@ export function loadConfig(): Config {
   try {
     raw = yaml.load(fs.readFileSync(configPath, 'utf8'));
   } catch (error) {
-    console.error(`[config] Failed to parse config.yaml:`, error);
+    console.error(`[config] Failed to parse config.yml:`, error);
     process.exit(1);
   }
 
@@ -58,7 +60,7 @@ export function loadConfig(): Config {
       // oxlint-disable-next-line id-length
       .map((i) => `${i.path.join('.')}: ${i.message}`)
       .join('\n  ');
-    console.error(`[config] config.yaml validation failed:\n  ${errors}`);
+    console.error(`[config] config.yml validation failed:\n  ${errors}`);
     process.exit(1);
   }
 

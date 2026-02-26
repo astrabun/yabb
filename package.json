@@ -1,6 +1,6 @@
 {
   "name": "yabb",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Yet Another (Discord/Telegram) Bridge, Baby!",
   "main": "dist/index.js",
   "scripts": {
@@ -21,6 +21,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.30.1",
   "dependencies": {
+    "@dotenvx/dotenvx": "^1.52.0",
     "better-sqlite3": "^12.6.2",
     "discord.js": "^14.25.1",
     "grammy": "^1.40.1",
