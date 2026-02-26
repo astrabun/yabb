@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version-file: package.json
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -26,8 +26,6 @@ jobs:
 
       - name: Lint
         run: pnpm lint
-        env:
-          NODE_OPTIONS: '--import tsx'
 
       - name: Format check
         run: pnpm fmt:check
