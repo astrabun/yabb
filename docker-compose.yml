@@ -1,6 +1,8 @@
 services:
   bb:
-    build: .
+    # uncomment if you want to build the image yourself!
+    # build: .
+    image: ghcr.io/astrabun/yabb:main
     restart: unless-stopped
     env_file: .env
     volumes:
