@@ -156,7 +156,8 @@ export function registerDiscordHandlers(client: Client): void {
             const res = await fetch(sticker.url);
             if (res.ok) {
               const buffer = Buffer.from(await res.arrayBuffer());
-              const ext = sticker.format === StickerFormatType.GIF ? 'gif' : 'png';
+              const ext =
+                sticker.format === StickerFormatType.GIF ? 'gif' : 'png';
               const inputFile = new InputFile(buffer, `${sticker.name}.${ext}`);
               if (sticker.format === StickerFormatType.GIF) {
                 sentMsg = await bot.api.sendAnimation(
