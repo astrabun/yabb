@@ -1,0 +1,11 @@
+services:
+  bb:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./data:/app/data
+    environment:
+      - CONFIG_PATH=/app/config.yml
+      - DATA_DIR=/app/data

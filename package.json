@@ -1,0 +1,47 @@
+{
+  "name": "yabb",
+  "version": "1.0.0",
+  "description": "Yet Another (Discord/Telegram) Bridge, Baby!",
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "oxlint --type-aware src/",
+    "lint:fix": "oxlint --type-aware --fix src/",
+    "fmt": "oxfmt src/",
+    "fmt:check": "oxfmt --check src/",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format cjs --out-dir dist",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "discord",
+    "telegram",
+    "bridge"
+  ],
+  "author": "Astra Bun",
+  "license": "ISC",
+  "packageManager": "pnpm@10.30.1",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "discord.js": "^14.25.1",
+    "grammy": "^1.40.1",
+    "js-yaml": "^4.1.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.3.1",
+    "oxfmt": "^0.35.0",
+    "oxlint": "^1.50.0",
+    "oxlint-tsgolint": "^0.15.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}
