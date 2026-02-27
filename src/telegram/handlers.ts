@@ -158,6 +158,35 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       }
     }
 
+    // Handle sticker
+    const {sticker} = ctx.message;
+    if (sticker) {
+      const emoji = sticker.emoji ?? '🔖';
+      // Use sticker thumbnail if animated
+      const fileId =
+        (sticker.is_animated || sticker.is_video) && sticker.thumbnail
+          ? sticker.thumbnail.file_id
+          : sticker.file_id;
+      const dl = await downloadTelegramFile(bot, fileId, token);
+      if (dl) {
+        // Ensure the filename has an extension so Discord renders it inline
+        const name = dl.name.includes('.') ? dl.name : `${dl.name}.webp`;
+        files.push(new AttachmentBuilder(dl.buffer, {name}));
+        embed.setImage(`attachment://${name}`);
+        embed.setDescription(
+          // oxlint-disable-next-line unicorn/no-null
+          truncate(text ? `${text}\n${emoji}` : emoji, MAX_EMBED_DESC) || null,
+        );
+      } else {
+        embed.setDescription(
+          truncate(
+            text ? `${text}\n${emoji} [sticker]` : `${emoji} [sticker]`,
+            MAX_EMBED_DESC,
+          ),
+        );
+      }
+    }
+
     try {
       const sent = await textChannel.send({embeds: [embed], files});
       insertLink({

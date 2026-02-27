@@ -4,6 +4,7 @@ import {
   Events,
   type Message,
   type PartialMessage,
+  StickerFormatType,
 } from 'discord.js';
 import {findBridgeByDiscord} from '../bridge.js';
 import {deleteByDiscord, findByDiscord, insertLink} from '../db.js';
@@ -130,6 +131,64 @@ export function registerDiscordHandlers(client: Client): void {
           });
         } catch (error) {
           console.error('[discord-->tg] Failed to send attachment:', error);
+        }
+      }
+      return;
+    }
+
+    // Stickers
+    if (msg.stickers.size > 0) {
+      for (const sticker of msg.stickers.values()) {
+        const caption = content
+          ? truncate(`${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
+          : `${header}: [sticker: ${escapeHtml(sticker.name)}]`;
+
+        try {
+          let sentMsg;
+          if (sticker.format === StickerFormatType.Lottie) {
+            // Lottie is JSON-based vector; can't send as image
+            sentMsg = await bot.api.sendMessage(
+              bridge.telegram_chat_id,
+              caption,
+              {parse_mode: 'HTML', ...threadOpts},
+            );
+          } else {
+            const res = await fetch(sticker.url);
+            if (res.ok) {
+              const buffer = Buffer.from(await res.arrayBuffer());
+              const ext =
+                sticker.format === StickerFormatType.GIF ? 'gif' : 'png';
+              const inputFile = new InputFile(buffer, `${sticker.name}.${ext}`);
+              if (sticker.format === StickerFormatType.GIF) {
+                sentMsg = await bot.api.sendAnimation(
+                  bridge.telegram_chat_id,
+                  inputFile,
+                  {caption, parse_mode: 'HTML', ...threadOpts},
+                );
+              } else {
+                sentMsg = await bot.api.sendPhoto(
+                  bridge.telegram_chat_id,
+                  inputFile,
+                  {caption, parse_mode: 'HTML', ...threadOpts},
+                );
+              }
+            } else {
+              sentMsg = await bot.api.sendMessage(
+                bridge.telegram_chat_id,
+                caption,
+                {parse_mode: 'HTML', ...threadOpts},
+              );
+            }
+          }
+
+          insertLink({
+            discordChannelId: msg.channelId,
+            discordMessageId: msg.id,
+            tgChatId: bridge.telegram_chat_id,
+            tgMessageId: sentMsg.message_id,
+          });
+        } catch (error) {
+          console.error('[discord-->tg] Failed to send sticker:', error);
         }
       }
       return;
