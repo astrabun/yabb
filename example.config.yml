@@ -3,3 +3,11 @@ bridges:
   # - name: announcements
   #   telegram_chat_id: -1009876543210
   #   discord_channel_id: "123456789012345678"
+  # EXAMPLE:
+  - name: general
+    telegram_chat_id: -1009876543210
+    discord_channel_id: "123456789012345678"
+  - name: memes
+    telegram_chat_id: -1009876543210
+    telegram_thread_id: 5
+    discord_channel_id: "234567890123456789"
