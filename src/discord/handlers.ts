@@ -166,10 +166,17 @@ export function registerDiscordHandlers(client: Client): void {
                   {caption, parse_mode: 'HTML', ...threadOpts},
                 );
               } else {
-                sentMsg = await bot.api.sendPhoto(
+                // Attribution for stickers (since we can't caption a sticker)
+                await bot.api.sendMessage(
+                  bridge.telegram_chat_id,
+                  caption,
+                  {parse_mode: 'HTML', ...threadOpts}
+                );
+                // Then send as a sticker to keep transparency
+                sentMsg = await bot.api.sendSticker(
                   bridge.telegram_chat_id,
                   inputFile,
-                  {caption, parse_mode: 'HTML', ...threadOpts},
+                  {...threadOpts},
                 );
               }
             } else {
