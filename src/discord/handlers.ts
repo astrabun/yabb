@@ -78,13 +78,62 @@ export function registerDiscordHandlers(client: Client): void {
         ? {message_thread_id: bridge.telegram_thread_id}
         : {};
 
+    // Reply handling
+    interface ReplyParams {
+      reply_parameters?: {
+        message_id: number;
+        allow_sending_without_reply: boolean;
+      };
+    }
+    let replyParams: ReplyParams = {};
+    let replyPrefix = '';
+
+    if (msg.reference?.messageId) {
+      const repliedToUserId = msg.mentions.repliedUser?.id;
+      if (repliedToUserId === client.user?.id) {
+        // Bot sent it --> originally from Telegram --> attempt native TG reply
+        const refChannelId = msg.reference.channelId ?? msg.channelId;
+        const link = findByDiscord(refChannelId, msg.reference.messageId);
+        if (link) {
+          replyParams = {
+            reply_parameters: {
+              allow_sending_without_reply: true,
+              message_id: link.tgMessageId,
+            },
+          };
+        }
+      } else {
+        // Discord-authored message --> blockquote excerpt for Telegram
+        try {
+          const refMsg = await msg.channel.messages.fetch(
+            msg.reference.messageId,
+          );
+          const refName = discordDisplayName(refMsg);
+          const refContent =
+            refMsg.content ||
+            (refMsg.attachments.size > 0 ? '[attachment]' : '') ||
+            (refMsg.stickers.size > 0
+              ? `[sticker: ${refMsg.stickers.first()!.name}]`
+              : '') ||
+            '[message]';
+          const excerpt = truncate(refContent, 100);
+          replyPrefix = `<blockquote><b>${escapeHtml(refName)}</b>: ${escapeHtml(excerpt)}</blockquote>\n`;
+        } catch {
+          // Ignore - can't fetch the message, proceed without quote
+        }
+      }
+    }
+
     // If there are attachments, handle them first
     if (msg.attachments.size > 0) {
+      let replyApplied = false;
       for (const attachment of msg.attachments.values()) {
         const dl = await downloadDiscordAttachment(attachment);
-        const caption = content
-          ? truncate(`${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
-          : header;
+        const prefix = replyApplied ? '' : replyPrefix;
+        const baseCaption = content
+          ? truncate(`${prefix}${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
+          : `${prefix}${header}`;
+        const caption = truncate(baseCaption, MAX_TG_TEXT);
 
         try {
           let sentMsg;
@@ -98,19 +147,20 @@ export function registerDiscordHandlers(client: Client): void {
                   caption,
                   parse_mode: 'HTML',
                   ...threadOpts,
+                  ...replyParams,
                 },
               );
             } else {
               sentMsg = await bot.api.sendDocument(
                 bridge.telegram_chat_id,
                 inputFile,
-                {caption, parse_mode: 'HTML', ...threadOpts},
+                {caption, parse_mode: 'HTML', ...threadOpts, ...replyParams},
               );
             }
           } else {
-            // File too large — send link
+            // File too large - send link
             const linkText = truncate(
-              `${header}: ${escapeHtml(content ? `${content}\n` : '')}📎 <a href="${attachment.url}">${escapeHtml(attachment.name)}</a>`,
+              `${prefix}${header}: ${escapeHtml(content ? `${content}\n` : '')}📎 <a href="${attachment.url}">${escapeHtml(attachment.name)}</a>`,
               MAX_TG_TEXT,
             );
             sentMsg = await bot.api.sendMessage(
@@ -119,10 +169,12 @@ export function registerDiscordHandlers(client: Client): void {
               {
                 parse_mode: 'HTML',
                 ...threadOpts,
+                ...replyParams,
               },
             );
           }
 
+          replyApplied = true;
           insertLink({
             discordChannelId: msg.channelId,
             discordMessageId: msg.id,
@@ -138,10 +190,12 @@ export function registerDiscordHandlers(client: Client): void {
 
     // Stickers
     if (msg.stickers.size > 0) {
+      let replyApplied = false;
       for (const sticker of msg.stickers.values()) {
+        const prefix = replyApplied ? '' : replyPrefix;
         const caption = content
-          ? truncate(`${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
-          : `${header}: [sticker: ${escapeHtml(sticker.name)}]`;
+          ? truncate(`${prefix}${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
+          : `${prefix}${header}: [sticker: ${escapeHtml(sticker.name)}]`;
 
         try {
           let sentMsg;
@@ -150,7 +204,7 @@ export function registerDiscordHandlers(client: Client): void {
             sentMsg = await bot.api.sendMessage(
               bridge.telegram_chat_id,
               caption,
-              {parse_mode: 'HTML', ...threadOpts},
+              {parse_mode: 'HTML', ...threadOpts, ...replyParams},
             );
           } else {
             const res = await fetch(sticker.url);
@@ -163,13 +217,14 @@ export function registerDiscordHandlers(client: Client): void {
                 sentMsg = await bot.api.sendAnimation(
                   bridge.telegram_chat_id,
                   inputFile,
-                  {caption, parse_mode: 'HTML', ...threadOpts},
+                  {caption, parse_mode: 'HTML', ...threadOpts, ...replyParams},
                 );
               } else {
                 // Attribution for stickers (since we can't caption a sticker)
                 await bot.api.sendMessage(bridge.telegram_chat_id, caption, {
                   parse_mode: 'HTML',
                   ...threadOpts,
+                  ...replyParams,
                 });
                 // Then send as a sticker to keep transparency
                 sentMsg = await bot.api.sendSticker(
@@ -182,11 +237,12 @@ export function registerDiscordHandlers(client: Client): void {
               sentMsg = await bot.api.sendMessage(
                 bridge.telegram_chat_id,
                 caption,
-                {parse_mode: 'HTML', ...threadOpts},
+                {parse_mode: 'HTML', ...threadOpts, ...replyParams},
               );
             }
           }
 
+          replyApplied = true;
           insertLink({
             discordChannelId: msg.channelId,
             discordMessageId: msg.id,
@@ -204,12 +260,16 @@ export function registerDiscordHandlers(client: Client): void {
     if (!content) {
       return;
     }
-    const text = truncate(`${header}: ${escapeHtml(content)}`, MAX_TG_TEXT);
+    const text = truncate(
+      `${replyPrefix}${header}: ${escapeHtml(content)}`,
+      MAX_TG_TEXT,
+    );
 
     try {
       const sentMsg = await bot.api.sendMessage(bridge.telegram_chat_id, text, {
         parse_mode: 'HTML',
         ...threadOpts,
+        ...replyParams,
       });
       insertLink({
         discordChannelId: msg.channelId,
