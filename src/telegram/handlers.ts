@@ -60,7 +60,7 @@ async function downloadTelegramFile(
 
     const contentLength = res.headers.get('content-length');
     if (contentLength && parseInt(contentLength) > MAX_DISCORD_FILE_BYTES) {
-      return undefined; // Too large — caller will send a link instead
+      return undefined; // Too large - caller will send a link instead
     }
 
     const buffer = Buffer.from(await res.arrayBuffer());
@@ -114,11 +114,52 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
 
     const text = ctx.message.text ?? ctx.message.caption ?? '';
 
+    // Reply handling
+    let discordReplyRef: string | undefined;
+    let replyFieldValue: string | undefined;
+
+    const replyMsg = ctx.message.reply_to_message;
+    /* In Telegram group topics, every non-reply message has reply_to_message pointing to the
+       topic creation message (message_id === message_thread_id). Skip that implicit parent —
+       it is not a real user-initiated reply. Same pattern occurs in channel linked groups. */
+    if (replyMsg && replyMsg.message_id !== ctx.message.message_thread_id) {
+      const botId = bot.botInfo?.id;
+      if (botId && replyMsg.from?.id === botId) {
+        // Bot sent it --> originally from Discord --> attempt native Discord reply
+        const link = findByTelegram(String(ctx.chat.id), replyMsg.message_id);
+        if (link) {
+          discordReplyRef = link.discordMessageId;
+        }
+      } else {
+        // Telegram-authored message --> blockquote field in Discord embed
+        const refName = replyMsg.from ? senderName(replyMsg.from) : 'Someone'; // Fallback if not defined
+        const refText =
+          replyMsg.text ??
+          replyMsg.caption ??
+          (replyMsg.sticker
+            ? `[sticker: ${replyMsg.sticker.emoji ?? '🔖'}]`
+            : undefined) ??
+          (replyMsg.photo ? '[photo]' : undefined) ??
+          (replyMsg.document
+            ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
+            : undefined) ??
+          '[message]';
+        const excerpt = truncate(refText, 100);
+        replyFieldValue = `**${refName}**: ${excerpt}`;
+      }
+    }
+
     const embed = new EmbedBuilder()
       .setColor(TELEGRAM_BLUE)
       .setAuthor({iconURL: avatarUrl, name})
       // oxlint-disable-next-line unicorn/no-null
       .setDescription(truncate(text, MAX_EMBED_DESC) || null);
+
+    if (replyFieldValue) {
+      embed.addFields([
+        {name: '↩️ Replying to', value: truncate(replyFieldValue, 1024)},
+      ]);
+    }
 
     const files: AttachmentBuilder[] = [];
 
@@ -151,7 +192,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       } else {
         embed.setDescription(
           truncate(
-            `${text ? `${text}\n` : ''}📎 [${doc.file_name ?? 'file'} — too large to attach]`,
+            `${text ? `${text}\n` : ''}📎 [${doc.file_name ?? 'file'} - too large to attach]`,
             MAX_EMBED_DESC,
           ),
         );
@@ -188,7 +229,13 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
     }
 
     try {
-      const sent = await textChannel.send({embeds: [embed], files});
+      const sent = await textChannel.send({
+        embeds: [embed],
+        files,
+        ...(discordReplyRef
+          ? {reply: {failIfNotExists: false, messageReference: discordReplyRef}}
+          : {}),
+      });
       insertLink({
         discordChannelId: bridge.discord_channel_id,
         discordMessageId: sent.id,
