@@ -82,37 +82,131 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 1)}...`;
 }
 
+interface TelegramEntity {
+  type: string;
+  offset: number;
+  length: number;
+  language?: string;
+}
+
+const SUPPORTED_ENTITIES = new Set([
+  'bold',
+  'italic',
+  'underline',
+  'strikethrough',
+  'code',
+  'pre',
+  'spoiler',
+]);
+
+/** Wrap inner Discord markdown text with the appropriate markers for a Telegram entity. */
+function wrapTelegramEntity(entity: TelegramEntity, inner: string): string {
+  switch (entity.type) {
+    case 'bold': {
+      return `**${inner}**`;
+    }
+    case 'italic': {
+      return `_${inner}_`;
+    }
+    case 'underline': {
+      return `__${inner}__`;
+    }
+    case 'strikethrough': {
+      return `~~${inner}~~`;
+    }
+    case 'code': {
+      return `\`${inner}\``;
+    }
+    case 'pre': {
+      const lang = entity.language ?? '';
+      return `\`\`\`${lang}\n${inner}\n\`\`\``;
+    }
+    case 'spoiler': {
+      return `||${inner}||`;
+    }
+    default: {
+      return inner;
+    }
+  }
+}
+
 /**
- * Apply Telegram spoiler entities to plain text, wrapping spoiler ranges
- * with Discord's ||...|| spoiler syntax.
+ * Recursively render a slice of Telegram text with its entities applied as Discord markdown.
+ * Handles nested entities by processing top-level (non-overlapping) entities first,
+ * then recursing into each entity's range for nested formatting.
  */
-function applyTelegramSpoilers(
+function renderTelegramSegment(
   text: string,
-  entities:
-    | ReadonlyArray<{type: string; offset: number; length: number}>
-    | undefined,
+  entities: TelegramEntity[],
+  range: {start: number; end: number},
 ): string {
-  if (!entities) {
-    return text;
-  }
-  const spoilers = entities
-    .filter((entity) => entity.type === 'spoiler')
+  const {start, end} = range;
+  const candidates = entities
+    .filter((ent) => ent.offset >= start && ent.offset + ent.length <= end)
     // oxlint-disable-next-line id-length
-    .sort((a, b) => a.offset - b.offset);
-  if (spoilers.length === 0) {
+    .sort((a, b) => a.offset - b.offset || b.length - a.length);
+
+  // Select non-overlapping top-level entities using a sweep (greedy, wider spans win ties)
+  const topLevel: TelegramEntity[] = [];
+  let maxEnd = start;
+  for (const ent of candidates) {
+    if (ent.offset >= maxEnd) {
+      topLevel.push(ent);
+      maxEnd = ent.offset + ent.length;
+    }
+  }
+
+  let result = '';
+  let pos = start;
+  for (const entity of topLevel) {
+    result += text.slice(pos, entity.offset);
+
+    const entityStart = entity.offset;
+    const entityEnd = entity.offset + entity.length;
+    const rawContent = text.slice(entityStart, entityEnd);
+
+    let inner: string;
+    if (entity.type === 'code' || entity.type === 'pre') {
+      // Don't apply nested formatting inside code/pre blocks
+      inner = rawContent;
+    } else {
+      const nested = candidates.filter(
+        (ent) =>
+          ent !== entity &&
+          ent.offset >= entityStart &&
+          ent.offset + ent.length <= entityEnd,
+      );
+      inner = renderTelegramSegment(text, nested, {
+        end: entityEnd,
+        start: entityStart,
+      });
+    }
+
+    result += wrapTelegramEntity(entity, inner);
+    pos = entityEnd;
+  }
+
+  result += text.slice(pos, end);
+  return result;
+}
+
+/**
+ * Apply Telegram message entities to plain text, converting them to Discord markdown syntax.
+ * Handles bold, italic, underline, strikethrough, code, pre, and spoiler entities,
+ * including nested formatting.
+ */
+function applyTelegramEntities(
+  text: string,
+  entities: ReadonlyArray<TelegramEntity> | undefined,
+): string {
+  if (!entities || entities.length === 0) {
     return text;
   }
-  let result = '';
-  let pos = 0;
-  for (const entity of spoilers) {
-    result += text.slice(pos, entity.offset);
-    result += '||';
-    result += text.slice(entity.offset, entity.offset + entity.length);
-    result += '||';
-    pos = entity.offset + entity.length;
+  const filtered = entities.filter((ent) => SUPPORTED_ENTITIES.has(ent.type));
+  if (filtered.length === 0) {
+    return text;
   }
-  result += text.slice(pos);
-  return result;
+  return renderTelegramSegment(text, filtered, {end: text.length, start: 0});
 }
 
 export function registerTelegramHandlers(bot: Bot, token: string): void {
@@ -146,7 +240,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       : undefined;
 
     const rawText = ctx.message.text ?? ctx.message.caption ?? '';
-    const text = applyTelegramSpoilers(
+    const text = applyTelegramEntities(
       rawText,
       ctx.message.entities ?? ctx.message.caption_entities,
     );
@@ -181,7 +275,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
             ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
             : undefined) ??
           '[message]';
-        const refText = applyTelegramSpoilers(
+        const refText = applyTelegramEntities(
           refRawText,
           replyMsg.entities ?? replyMsg.caption_entities,
         );
@@ -326,7 +420,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
 
     try {
       const msg = await textChannel.messages.fetch(link.discordMessageId);
-      const newText = applyTelegramSpoilers(
+      const newText = applyTelegramEntities(
         ctx.editedMessage.text ?? ctx.editedMessage.caption ?? '',
         ctx.editedMessage.entities ?? ctx.editedMessage.caption_entities,
       );
