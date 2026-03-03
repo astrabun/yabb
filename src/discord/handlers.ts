@@ -23,27 +23,104 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Convert Discord message content to Telegram HTML.
- * Translates Discord spoiler syntax (||text||) to Telegram's <tg-spoiler> tags,
- * and HTML-escapes all content.
+ * Convert Discord markdown content to Telegram HTML.
+ * Finds the earliest markdown pattern in the text, converts it to a Telegram HTML tag,
+ * then recurses on the remaining text. Plain text is HTML-escaped; code content is
+ * escaped but not parsed further.
  */
 function discordContentToTelegramHtml(text: string): string {
-  const segments = text.split('||');
-  let result = '';
-  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
-    const escaped = escapeHtml(segments[segmentIndex]);
-    if (segmentIndex % 2 === 1) {
-      if (segmentIndex < segments.length - 1) {
-        result += `<tg-spoiler>${escaped}</tg-spoiler>`;
-      } else {
-        // Unclosed spoiler marker - treat as literal
-        result += `||${escaped}`;
-      }
-    } else {
-      result += escaped;
+  type Handler = (match: RegExpExecArray) => string;
+
+  // Patterns checked in precedence order; earliest match in the string wins.
+  const patterns: [RegExp, Handler][] = [
+    // Code block: ```lang\ncode``` - escape content, no further parsing
+    [
+      /```(\w*)\n?([\s\S]*?)```/,
+      (markdownContent) => {
+        const code = escapeHtml(markdownContent[2].replace(/\n$/, ''));
+        return markdownContent[1]
+          ? `<pre><code class="language-${escapeHtml(markdownContent[1])}">${code}</code></pre>`
+          : `<pre>${code}</pre>`;
+      },
+    ],
+    // Inline code: `code` - escape content, no further parsing
+    [
+      /`([^`\n]+)`/,
+      (markdownContent) => `<code>${escapeHtml(markdownContent[1])}</code>`,
+    ],
+    // Bold + italic: ***text***
+    [
+      /\*\*\*(.+?)\*\*\*/s,
+      (markdownContent) =>
+        `<b><i>${discordContentToTelegramHtml(markdownContent[1])}</i></b>`,
+    ],
+    // Bold: **text**
+    [
+      /\*\*(.+?)\*\*/s,
+      (markdownContent) =>
+        `<b>${discordContentToTelegramHtml(markdownContent[1])}</b>`,
+    ],
+    // Italic + underline: ___text___
+    [
+      /___(.+?)___/s,
+      (markdownContent) =>
+        `<i><u>${discordContentToTelegramHtml(markdownContent[1])}</u></i>`,
+    ],
+    // Underline: __text__
+    [
+      /__(.+?)__/s,
+      (markdownContent) =>
+        `<u>${discordContentToTelegramHtml(markdownContent[1])}</u>`,
+    ],
+    // Italic (asterisk): *text*
+    [
+      /\*([^*\n]+)\*/,
+      (markdownContent) =>
+        `<i>${discordContentToTelegramHtml(markdownContent[1])}</i>`,
+    ],
+    // Italic (underscore): _text_ - only at word boundaries
+    [
+      /(?<!\w)_([^_\n]+)_(?!\w)/,
+      (markdownContent) =>
+        `<i>${discordContentToTelegramHtml(markdownContent[1])}</i>`,
+    ],
+    // Strikethrough: ~~text~~
+    [
+      /~~(.+?)~~/s,
+      (markdownContent) =>
+        `<s>${discordContentToTelegramHtml(markdownContent[1])}</s>`,
+    ],
+    // Spoiler: ||text||
+    [
+      /\|\|(.+?)\|\|/s,
+      (markdownContent) =>
+        `<tg-spoiler>${discordContentToTelegramHtml(markdownContent[1])}</tg-spoiler>`,
+    ],
+  ];
+
+  // Find the earliest match across all patterns
+  // oxlint-disable-next-line unicorn/no-null
+  let earliest: {index: number; end: number; html: string} | null = null;
+  for (const [regex, handler] of patterns) {
+    const match = regex.exec(text);
+    if (match !== null && (earliest === null || match.index < earliest.index)) {
+      earliest = {
+        end: match.index + match[0].length,
+        html: handler(match),
+        index: match.index,
+      };
     }
   }
-  return result;
+
+  if (earliest === null) {
+    return escapeHtml(text);
+  }
+
+  return (
+    escapeHtml(text.slice(0, earliest.index)) +
+    earliest.html +
+    discordContentToTelegramHtml(text.slice(earliest.end))
+  );
 }
 
 function truncate(text: string, max: number): string {
