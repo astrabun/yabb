@@ -36,7 +36,7 @@ function discordContentToTelegramHtml(text: string): string {
       if (segmentIndex < segments.length - 1) {
         result += `<tg-spoiler>${escaped}</tg-spoiler>`;
       } else {
-        // Unclosed spoiler marker — treat as literal
+        // Unclosed spoiler marker - treat as literal
         result += `||${escaped}`;
       }
     } else {
@@ -173,6 +173,7 @@ export function registerDiscordHandlers(client: Client): void {
                 {
                   caption,
                   parse_mode: 'HTML',
+                  ...(attachment.spoiler ? {has_spoiler: true} : {}),
                   ...threadOpts,
                   ...replyParams,
                 },

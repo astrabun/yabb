@@ -157,7 +157,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
 
     const replyMsg = ctx.message.reply_to_message;
     /* In Telegram group topics, every non-reply message has reply_to_message pointing to the
-       topic creation message (message_id === message_thread_id). Skip that implicit parent —
+       topic creation message (message_id === message_thread_id). Skip that implicit parent -
        it is not a real user-initiated reply. Same pattern occurs in channel linked groups. */
     if (replyMsg && replyMsg.message_id !== ctx.message.message_thread_id) {
       const botId = bot.botInfo?.id;
@@ -210,8 +210,16 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       const largest = photo[photo.length - 1];
       const dl = await downloadTelegramFile(bot, largest.file_id, token);
       if (dl) {
-        files.push(new AttachmentBuilder(dl.buffer, {name: dl.name}));
-        embed.setImage(`attachment://${dl.name}`);
+        if (ctx.message.has_media_spoiler) {
+          /* Discord embeds don't support spoilers - send as a bare SPOILER_ attachment
+             so Discord applies the blur natively, without referencing it in the embed. */
+          files.push(
+            new AttachmentBuilder(dl.buffer, {name: `SPOILER_${dl.name}`}),
+          );
+        } else {
+          files.push(new AttachmentBuilder(dl.buffer, {name: dl.name}));
+          embed.setImage(`attachment://${dl.name}`);
+        }
       } else {
         embed.setDescription(
           truncate(
