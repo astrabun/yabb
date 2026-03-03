@@ -82,6 +82,39 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 1)}...`;
 }
 
+/**
+ * Apply Telegram spoiler entities to plain text, wrapping spoiler ranges
+ * with Discord's ||...|| spoiler syntax.
+ */
+function applyTelegramSpoilers(
+  text: string,
+  entities:
+    | ReadonlyArray<{type: string; offset: number; length: number}>
+    | undefined,
+): string {
+  if (!entities) {
+    return text;
+  }
+  const spoilers = entities
+    .filter((entity) => entity.type === 'spoiler')
+    // oxlint-disable-next-line id-length
+    .sort((a, b) => a.offset - b.offset);
+  if (spoilers.length === 0) {
+    return text;
+  }
+  let result = '';
+  let pos = 0;
+  for (const entity of spoilers) {
+    result += text.slice(pos, entity.offset);
+    result += '||';
+    result += text.slice(entity.offset, entity.offset + entity.length);
+    result += '||';
+    pos = entity.offset + entity.length;
+  }
+  result += text.slice(pos);
+  return result;
+}
+
 export function registerTelegramHandlers(bot: Bot, token: string): void {
   // New messages
   bot.on('message', async (ctx) => {
@@ -112,7 +145,11 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       ? await getProfilePhotoUrl(bot, from.id, token)
       : undefined;
 
-    const text = ctx.message.text ?? ctx.message.caption ?? '';
+    const rawText = ctx.message.text ?? ctx.message.caption ?? '';
+    const text = applyTelegramSpoilers(
+      rawText,
+      ctx.message.entities ?? ctx.message.caption_entities,
+    );
 
     // Reply handling
     let discordReplyRef: string | undefined;
@@ -133,7 +170,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       } else {
         // Telegram-authored message --> blockquote field in Discord embed
         const refName = replyMsg.from ? senderName(replyMsg.from) : 'Someone'; // Fallback if not defined
-        const refText =
+        const refRawText =
           replyMsg.text ??
           replyMsg.caption ??
           (replyMsg.sticker
@@ -144,6 +181,10 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
             ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
             : undefined) ??
           '[message]';
+        const refText = applyTelegramSpoilers(
+          refRawText,
+          replyMsg.entities ?? replyMsg.caption_entities,
+        );
         const excerpt = truncate(refText, 100);
         replyFieldValue = `**${refName}**: ${excerpt}`;
       }
@@ -277,7 +318,10 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
 
     try {
       const msg = await textChannel.messages.fetch(link.discordMessageId);
-      const newText = ctx.editedMessage.text ?? ctx.editedMessage.caption ?? '';
+      const newText = applyTelegramSpoilers(
+        ctx.editedMessage.text ?? ctx.editedMessage.caption ?? '',
+        ctx.editedMessage.entities ?? ctx.editedMessage.caption_entities,
+      );
       // oxlint-disable-next-line prefer-destructuring
       const oldEmbed = msg.embeds[0];
 
