@@ -22,6 +22,30 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * Convert Discord message content to Telegram HTML.
+ * Translates Discord spoiler syntax (||text||) to Telegram's <tg-spoiler> tags,
+ * and HTML-escapes all content.
+ */
+function discordContentToTelegramHtml(text: string): string {
+  const segments = text.split('||');
+  let result = '';
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const escaped = escapeHtml(segments[segmentIndex]);
+    if (segmentIndex % 2 === 1) {
+      if (segmentIndex < segments.length - 1) {
+        result += `<tg-spoiler>${escaped}</tg-spoiler>`;
+      } else {
+        // Unclosed spoiler marker - treat as literal
+        result += `||${escaped}`;
+      }
+    } else {
+      result += escaped;
+    }
+  }
+  return result;
+}
+
 function truncate(text: string, max: number): string {
   if (text.length <= max) {
     return text;
@@ -117,7 +141,7 @@ export function registerDiscordHandlers(client: Client): void {
               : '') ||
             '[message]';
           const excerpt = truncate(refContent, 100);
-          replyPrefix = `<blockquote><b>${escapeHtml(refName)}</b>: ${escapeHtml(excerpt)}</blockquote>\n`;
+          replyPrefix = `<blockquote><b>${escapeHtml(refName)}</b>: ${discordContentToTelegramHtml(excerpt)}</blockquote>\n`;
         } catch {
           // Ignore - can't fetch the message, proceed without quote
         }
@@ -131,7 +155,10 @@ export function registerDiscordHandlers(client: Client): void {
         const dl = await downloadDiscordAttachment(attachment);
         const prefix = replyApplied ? '' : replyPrefix;
         const baseCaption = content
-          ? truncate(`${prefix}${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
+          ? truncate(
+              `${prefix}${header}: ${discordContentToTelegramHtml(content)}`,
+              MAX_TG_TEXT,
+            )
           : `${prefix}${header}`;
         const caption = truncate(baseCaption, MAX_TG_TEXT);
 
@@ -146,6 +173,7 @@ export function registerDiscordHandlers(client: Client): void {
                 {
                   caption,
                   parse_mode: 'HTML',
+                  ...(attachment.spoiler ? {has_spoiler: true} : {}),
                   ...threadOpts,
                   ...replyParams,
                 },
@@ -160,7 +188,7 @@ export function registerDiscordHandlers(client: Client): void {
           } else {
             // File too large - send link
             const linkText = truncate(
-              `${prefix}${header}: ${escapeHtml(content ? `${content}\n` : '')}📎 <a href="${attachment.url}">${escapeHtml(attachment.name)}</a>`,
+              `${prefix}${header}: ${discordContentToTelegramHtml(content ? `${content}\n` : '')}📎 <a href="${attachment.url}">${escapeHtml(attachment.name)}</a>`,
               MAX_TG_TEXT,
             );
             sentMsg = await bot.api.sendMessage(
@@ -194,7 +222,10 @@ export function registerDiscordHandlers(client: Client): void {
       for (const sticker of msg.stickers.values()) {
         const prefix = replyApplied ? '' : replyPrefix;
         const caption = content
-          ? truncate(`${prefix}${header}: ${escapeHtml(content)}`, MAX_TG_TEXT)
+          ? truncate(
+              `${prefix}${header}: ${discordContentToTelegramHtml(content)}`,
+              MAX_TG_TEXT,
+            )
           : `${prefix}${header}: [sticker: ${escapeHtml(sticker.name)}]`;
 
         try {
@@ -261,7 +292,7 @@ export function registerDiscordHandlers(client: Client): void {
       return;
     }
     const text = truncate(
-      `${replyPrefix}${header}: ${escapeHtml(content)}`,
+      `${replyPrefix}${header}: ${discordContentToTelegramHtml(content)}`,
       MAX_TG_TEXT,
     );
 
@@ -309,7 +340,7 @@ export function registerDiscordHandlers(client: Client): void {
     const name = discordDisplayName(newMsg);
     const content = newMsg.content ?? '';
     const text = truncate(
-      `<b>${escapeHtml(name)}</b>: ${escapeHtml(content)}`,
+      `<b>${escapeHtml(name)}</b>: ${discordContentToTelegramHtml(content)}`,
       MAX_TG_TEXT,
     );
 
