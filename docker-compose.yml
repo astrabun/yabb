@@ -1,7 +1,6 @@
 services:
   bb:
-    build: .
-    image: ghcr.io/astrabun/yabb:main
+    image: ghcr.io/astrabun/yabb:latest
     restart: unless-stopped
     env_file: .env
     volumes:
