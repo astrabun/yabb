@@ -300,7 +300,12 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
         const sent = await textChannel.send({
           content: plainContent,
           ...(discordReplyRef
-            ? {reply: {failIfNotExists: false, messageReference: discordReplyRef}}
+            ? {
+                reply: {
+                  failIfNotExists: false,
+                  messageReference: discordReplyRef,
+                },
+              }
             : {}),
         });
         insertLink({
