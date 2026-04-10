@@ -82,6 +82,10 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 1)}...`;
 }
 
+function isUrlOnly(text: string): boolean {
+  return /^https?:\/\/\S+$/.test(text.trim());
+}
+
 interface TelegramEntity {
   type: string;
   offset: number;
@@ -282,6 +286,38 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
         const excerpt = truncate(refText, 100);
         replyFieldValue = `**${refName}**: ${excerpt}`;
       }
+    }
+
+    // Link-only messages: send as plain text so Discord renders the link embed preview
+    if (
+      !ctx.message.photo &&
+      !ctx.message.document &&
+      !ctx.message.sticker &&
+      isUrlOnly(rawText)
+    ) {
+      const plainContent = `**${name}**: ${rawText.trim()}`;
+      try {
+        const sent = await textChannel.send({
+          content: plainContent,
+          ...(discordReplyRef
+            ? {
+                reply: {
+                  failIfNotExists: false,
+                  messageReference: discordReplyRef,
+                },
+              }
+            : {}),
+        });
+        insertLink({
+          discordChannelId: bridge.discord_channel_id,
+          discordMessageId: sent.id,
+          tgChatId: String(ctx.chat.id),
+          tgMessageId: ctx.message.message_id,
+        });
+      } catch (error) {
+        console.error('[tg-->discord] Failed to send message:', error);
+      }
+      return;
     }
 
     const embed = new EmbedBuilder()
