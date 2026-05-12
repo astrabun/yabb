@@ -225,6 +225,51 @@ export function registerDiscordHandlers(client: Client): void {
       }
     }
 
+    // Forwarded messages (Discord message snapshots)
+    const snapshot = msg.messageSnapshots?.first();
+    if (snapshot) {
+      let snapshotDescription: string;
+      if (snapshot.content) {
+        snapshotDescription = discordContentToTelegramHtml(snapshot.content);
+      } else if (snapshot.attachments.size > 0) {
+        snapshotDescription = '[attachment]';
+      } else if (snapshot.stickers.size > 0) {
+        snapshotDescription = `[sticker: ${escapeHtml(snapshot.stickers.first()!.name)}]`;
+      } else if (snapshot.embeds.length > 0) {
+        snapshotDescription = '[embed]';
+      } else {
+        snapshotDescription = '[message]';
+      }
+
+      const text = truncate(
+        `${replyPrefix}${header}: ↪ <i>Forwarded a message</i>\n<blockquote>${snapshotDescription}</blockquote>`,
+        MAX_TG_TEXT,
+      );
+      try {
+        const sentMsg = await bot.api.sendMessage(
+          bridge.telegram_chat_id,
+          text,
+          {
+            parse_mode: 'HTML',
+            ...threadOpts,
+            ...replyParams,
+          },
+        );
+        insertLink({
+          discordChannelId: msg.channelId,
+          discordMessageId: msg.id,
+          tgChatId: bridge.telegram_chat_id,
+          tgMessageId: sentMsg.message_id,
+        });
+      } catch (error) {
+        console.error(
+          '[discord-->tg] Failed to send forwarded message:',
+          error,
+        );
+      }
+      return;
+    }
+
     // If there are attachments, handle them first
     if (msg.attachments.size > 0) {
       let replyApplied = false;

@@ -82,6 +82,41 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 1)}...`;
 }
 
+/** Extract a display name for the original sender of a forwarded Telegram message. */
+function getForwardSource(
+  msg: NonNullable<Context['message']>,
+): string | undefined {
+  const origin = msg.forward_origin;
+  if (!origin) {
+    return undefined;
+  }
+  if (origin.type === 'user') {
+    const originUser = origin.sender_user;
+    return (
+      [originUser.first_name, originUser.last_name].filter(Boolean).join(' ') ||
+      (originUser.username ? `@${originUser.username}` : String(originUser.id))
+    );
+  }
+  if (origin.type === 'hidden_user') {
+    return origin.sender_user_name;
+  }
+  if (origin.type === 'chat') {
+    const senderChat = origin.sender_chat;
+    return (
+      senderChat.title ??
+      (senderChat.username ? `@${senderChat.username}` : 'a group')
+    );
+  }
+  if (origin.type === 'channel') {
+    const originChat = origin.chat;
+    return (
+      originChat.title ??
+      (originChat.username ? `@${originChat.username}` : 'a channel')
+    );
+  }
+  return undefined;
+}
+
 function isUrlOnly(text: string): boolean {
   return /^https?:\/\/\S+$/.test(text.trim());
 }
@@ -288,14 +323,20 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       }
     }
 
-    // Link-only messages: send as plain text so Discord renders the link embed preview
+    const forwardSource = getForwardSource(ctx.message);
+
+    // Link-only messages: send as plain text so Discord renders the link embed preview.
     if (
       !ctx.message.photo &&
       !ctx.message.document &&
       !ctx.message.sticker &&
       isUrlOnly(rawText)
     ) {
-      const plainContent = `**${name}**: ${rawText.trim()}`;
+      // Discord suppresses auto link-previews when any embed is present, so put the
+      // "forwarded from" attribution in the content text to keep the embed slot free.
+      const plainContent = forwardSource
+        ? `**${name}** ↪ forwarded from **${forwardSource}**: ${rawText.trim()}`
+        : `**${name}**: ${rawText.trim()}`;
       try {
         const sent = await textChannel.send({
           content: plainContent,
@@ -325,6 +366,12 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       .setAuthor({iconURL: avatarUrl, name})
       // oxlint-disable-next-line unicorn/no-null
       .setDescription(truncate(text, MAX_EMBED_DESC) || null);
+
+    if (forwardSource) {
+      embed.addFields([
+        {name: '↪️ Forwarded from', value: truncate(forwardSource, 1024)},
+      ]);
+    }
 
     if (replyFieldValue) {
       embed.addFields([
