@@ -1,6 +1,6 @@
 {
   "name": "yabb",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Yet Another (Discord/Telegram) Bridge, Baby!",
   "type": "module",
   "main": "dist/index.js",
