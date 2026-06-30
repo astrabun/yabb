@@ -5,6 +5,7 @@ import {createBot} from './telegram/client.js';
 import {registerTelegramHandlers} from './telegram/handlers.js';
 import {createDiscordClient} from './discord/client.js';
 import {registerDiscordHandlers} from './discord/handlers.js';
+import {runCleanup} from './cleanup.js';
 import {Events} from 'discord.js';
 
 async function main() {
@@ -32,6 +33,19 @@ async function main() {
   void bot.start({
     onStart: (info) => console.log(`[telegram] Polling as @${info.username}`),
   });
+
+  if (config.cleanup) {
+    const {intervalMinutes, lookback} = config.cleanup;
+    const intervalMs = intervalMinutes * 60 * 1000;
+    setInterval(() => {
+      runCleanup(bot, config.cleanup!).catch((error) => {
+        console.error('[cleanup] Unexpected error during cleanup run:', error);
+      });
+    }, intervalMs);
+    console.log(
+      `[cleanup] Scheduled every ${intervalMinutes}m, lookback ${lookback} messages per bridge`,
+    );
+  }
 
   async function shutdown(signal: string) {
     console.log(`\n[yabb] Received ${signal}, shutting down…`);

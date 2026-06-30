@@ -16,16 +16,28 @@ const ConfigFileSchema = z.object({
 });
 
 const EnvSchema = z.object({
+  CLEANUP_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+  CLEANUP_LOOKBACK: z.coerce.number().int().positive().default(50),
+  CLEANUP_SINK_CHAT_ID: z.string().optional(),
+  CLEANUP_SINK_THREAD_ID: z.coerce.number().int().positive().optional(),
   DISCORD_BOT_TOKEN: z.string().min(1, 'DISCORD_BOT_TOKEN is required'),
   TELEGRAM_BOT_TOKEN: z.string().min(1, 'TELEGRAM_BOT_TOKEN is required'),
 });
 
 export type Bridge = z.infer<typeof BridgeSchema>;
 
+export interface CleanupConfig {
+  sinkChatId: string;
+  sinkThreadId?: number;
+  intervalMinutes: number;
+  lookback: number;
+}
+
 export interface Config {
   telegramToken: string;
   discordToken: string;
   bridges: Bridge[];
+  cleanup?: CleanupConfig;
 }
 
 export function loadConfig(): Config {
@@ -64,8 +76,18 @@ export function loadConfig(): Config {
     process.exit(1);
   }
 
+  const cleanup = envResult.data.CLEANUP_SINK_CHAT_ID
+    ? {
+        intervalMinutes: envResult.data.CLEANUP_INTERVAL_MINUTES,
+        lookback: envResult.data.CLEANUP_LOOKBACK,
+        sinkChatId: envResult.data.CLEANUP_SINK_CHAT_ID,
+        sinkThreadId: envResult.data.CLEANUP_SINK_THREAD_ID,
+      }
+    : undefined;
+
   return {
     bridges: fileResult.data.bridges,
+    cleanup,
     discordToken: envResult.data.DISCORD_BOT_TOKEN,
     telegramToken: envResult.data.TELEGRAM_BOT_TOKEN,
   };

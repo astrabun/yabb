@@ -83,6 +83,24 @@ export function findByDiscord(
     | undefined;
 }
 
+export function getRecentLinksByTgChat(
+  tgChatId: string,
+  limit: number,
+): MessageLink[] {
+  return db
+    .prepare(
+      `SELECT tg_chat_id          AS tgChatId,
+              tg_message_id       AS tgMessageId,
+              discord_channel_id  AS discordChannelId,
+              discord_message_id  AS discordMessageId
+       FROM message_links
+       WHERE tg_chat_id = ?
+       ORDER BY id DESC
+       LIMIT ?`,
+    )
+    .all(tgChatId, limit) as MessageLink[];
+}
+
 export function deleteByTelegram(tgChatId: string, tgMessageId: number): void {
   db.prepare(
     `DELETE FROM message_links WHERE tg_chat_id = ? AND tg_message_id = ?`,
