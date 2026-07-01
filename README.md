@@ -75,6 +75,30 @@ See [`example.config.yml`](./example.config.yml) for reference.
 
 &nbsp;
 
+## Orphaned message cleanup
+
+Telegram does not notify bots when a message is deleted, so if someone deletes a message on the Telegram side the mirrored Discord message will remain. The optional cleanup feature periodically scans recent bridged messages, probes whether the original Telegram message still exists, and deletes any Discord mirrors whose originals are gone.
+
+**How the probe works:** the bot forwards each Telegram message to a designated private "sink" group to test existence, then immediately deletes the probe forward. If the forward fails (message no longer exists), the Discord mirror is cleaned up. This means you need a dedicated private Telegram group that only the bot is a member of.
+
+**Setup:**
+
+1. Create a new private Telegram group.
+2. Add your bridge bot to it.
+3. Get the group's chat ID (e.g. forward any message in it to [@userinfobot](https://t.me/userinfobot), or temporarily enable debug logging).
+4. Set the following variables in your `.env`:
+
+```sh
+CLEANUP_SINK_CHAT_ID=-100xxxxxxxxxxx  # chat ID of the private sink group
+CLEANUP_SINK_THREAD_ID=123            # optional: topic/thread ID within the sink group, if using threads
+CLEANUP_INTERVAL_MINUTES=15           # how often to run (default: 15)
+CLEANUP_LOOKBACK=50                   # messages per bridge to check each run (default: 50)
+```
+
+If `CLEANUP_SINK_CHAT_ID` is not set, the feature is fully disabled and no probing occurs.
+
+&nbsp;
+
 ## Running
 
 ```sh

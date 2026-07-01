@@ -31,6 +31,10 @@ export function findBridgeByTelegram(
 }
 
 /** Find the bridge that corresponds to a given Discord channel ID. */
+export function getBridges(): Bridge[] {
+  return bridges;
+}
+
 export function findBridgeByDiscord(channelId: string): Bridge | undefined {
   return bridges.find((bridge) => bridge.discord_channel_id === channelId);
 }

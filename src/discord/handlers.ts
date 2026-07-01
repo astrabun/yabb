@@ -9,7 +9,7 @@ import {
 import {findBridgeByDiscord} from '../bridge.js';
 import {deleteByDiscord, findByDiscord, insertLink} from '../db.js';
 import {getBot} from '../telegram/client.js';
-import {InputFile} from 'grammy';
+import {GrammyError, InputFile} from 'grammy';
 
 const MAX_TG_TEXT = 4096;
 const MAX_TG_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -531,6 +531,35 @@ export function registerDiscordHandlers(client: Client): void {
         parse_mode: 'HTML',
       });
     } catch (error) {
+      if (error instanceof GrammyError) {
+        if (error.description.includes('message is not modified')) {
+          return;
+        }
+        if (
+          error.description.includes('there is no text in the message to edit')
+        ) {
+          // TG message is a photo/document - edit its caption instead
+          try {
+            await bot.api.editMessageCaption(link.tgChatId, link.tgMessageId, {
+              caption: text,
+              parse_mode: 'HTML',
+            });
+          } catch (captionError) {
+            if (
+              !(
+                captionError instanceof GrammyError &&
+                captionError.description.includes('message is not modified')
+              )
+            ) {
+              console.error(
+                '[discord-->tg] Failed to edit message caption:',
+                captionError,
+              );
+            }
+          }
+          return;
+        }
+      }
       console.error('[discord-->tg] Failed to edit message:', error);
     }
   });
@@ -551,7 +580,14 @@ export function registerDiscordHandlers(client: Client): void {
     try {
       await bot.api.deleteMessage(link.tgChatId, link.tgMessageId);
     } catch (error) {
-      console.error('[discord-->tg] Failed to delete message:', error);
+      if (
+        !(
+          error instanceof GrammyError &&
+          error.description.includes('message to delete not found')
+        )
+      ) {
+        console.error('[discord-->tg] Failed to delete message:', error);
+      }
     }
 
     deleteByDiscord(msg.channelId, msg.id);
