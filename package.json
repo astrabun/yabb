@@ -11,7 +11,7 @@
     "fmt:check": "oxfmt --check src/",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsup src/index.ts --format cjs --out-dir dist",
+    "build": "tsup src/index.ts --format esm --out-dir dist",
     "start": "node dist/index.js"
   },
   "keywords": [
