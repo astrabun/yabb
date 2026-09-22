@@ -310,6 +310,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
             ? `[sticker: ${replyMsg.sticker.emoji ?? '🔖'}]`
             : undefined) ??
           (replyMsg.photo ? '[photo]' : undefined) ??
+          (replyMsg.video ? '[video]' : undefined) ??
           (replyMsg.document
             ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
             : undefined) ??
@@ -330,6 +331,7 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       !ctx.message.photo &&
       !ctx.message.document &&
       !ctx.message.sticker &&
+      !ctx.message.video &&
       isUrlOnly(rawText)
     ) {
       // Discord suppresses auto link-previews when any embed is present, so put the
@@ -401,6 +403,23 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
         embed.setDescription(
           truncate(
             `${text ? `${text}\n` : ''}📎 [photo too large to embed]`,
+            MAX_EMBED_DESC,
+          ),
+        );
+      }
+    }
+
+    // Handle video
+    const {video} = ctx.message;
+    if (video) {
+      const dl = await downloadTelegramFile(bot, video.file_id, token);
+      if (dl) {
+        const vName = dl.name.includes('.') ? dl.name : `${dl.name}.mp4`;
+        files.push(new AttachmentBuilder(dl.buffer, {name: vName}));
+      } else {
+        embed.setDescription(
+          truncate(
+            `${text ? `${text}\n` : ''}📎 [video too large to attach]`,
             MAX_EMBED_DESC,
           ),
         );
