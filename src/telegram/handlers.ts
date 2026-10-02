@@ -9,6 +9,7 @@ import {getDiscordClient} from '../discord/client.js';
 const TELEGRAM_BLUE = 0x2a_ab_ee;
 const MAX_DISCORD_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_EMBED_DESC = 4096;
+const MAX_MESSAGE_CONTENT = 2000; // Max length on Discord - https://support.discord.com/hc/en-us/articles/33694251638295-Discord-Account-Caps-Server-Caps-and-More
 
 /** Build the display name for a Telegram user. */
 function senderName(from: NonNullable<Context['message']>['from']): string {
@@ -117,8 +118,83 @@ function getForwardSource(
   return undefined;
 }
 
-function isUrlOnly(text: string): boolean {
-  return /^https?:\/\/\S+$/.test(text.trim());
+const URL_PATTERN = /https?:\/\/\S+/g;
+
+function containsUrl(text: string): boolean {
+  return /https?:\/\/\S+/.test(text);
+}
+
+interface ReplyInfo {
+  /** Discord message to natively reply to (when replying to a Discord-originated message). */
+  discordReplyRef?: string;
+  /** "**name**: excerpt" quote (when replying to a Telegram-authored message). */
+  replyFieldValue?: string;
+}
+
+function getReplyInfo(
+  bot: Bot,
+  chatId: number,
+  msg: NonNullable<Context['message']>,
+): ReplyInfo {
+  const replyMsg = msg.reply_to_message;
+  /* In Telegram group topics, every non-reply message has reply_to_message pointing to the
+     topic creation message (message_id === message_thread_id). Skip that implicit parent -
+     it is not a real user-initiated reply. Same pattern occurs in channel linked groups. */
+  if (!replyMsg || replyMsg.message_id === msg.message_thread_id) {
+    return {};
+  }
+  const botId = bot.botInfo?.id;
+  if (botId && replyMsg.from?.id === botId) {
+    // Bot sent it --> originally from Discord --> attempt native Discord reply
+    const link = findByTelegram(String(chatId), replyMsg.message_id);
+    return {discordReplyRef: link?.discordMessageId};
+  }
+  // Telegram-authored message --> blockquote field in Discord embed
+  const refName = replyMsg.from ? senderName(replyMsg.from) : 'Someone'; // Fallback if not defined somehow
+  const refRawText =
+    replyMsg.text ??
+    replyMsg.caption ??
+    (replyMsg.sticker
+      ? `[sticker: ${replyMsg.sticker.emoji ?? '🔖'}]`
+      : undefined) ??
+    (replyMsg.photo ? '[photo]' : undefined) ??
+    (replyMsg.video ? '[video]' : undefined) ??
+    (replyMsg.document
+      ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
+      : undefined) ??
+    '[message]';
+  const refText = applyTelegramEntities(
+    refRawText,
+    replyMsg.entities ?? replyMsg.caption_entities,
+  );
+  const excerpt = truncate(refText, 100);
+  return {replyFieldValue: `**${refName}**: ${excerpt}`};
+}
+
+/**
+ * Build plain message content for text containing links. Discord doesn't render link
+ * previews for URLs inside embeds, and suppresses auto link-previews when any embed is
+ * present, so attribution, forward and reply info all go into the content text.
+ */
+function buildPlainContent({
+  forwardSource,
+  name,
+  replyFieldValue,
+  text,
+}: {
+  forwardSource?: string;
+  name: string;
+  replyFieldValue?: string;
+  text: string;
+}): string {
+  const header = forwardSource
+    ? `**${name}** ↪ forwarded from **${forwardSource}**`
+    : `**${name}**`;
+  // Wrap URLs in the quoted reply with <> so they don't produce previews of their own
+  const quote = replyFieldValue
+    ? `> ↩️ ${replyFieldValue.replaceAll(URL_PATTERN, '<$&>').replaceAll('\n', '\n> ')}\n`
+    : '';
+  return `${quote}${header}: ${text.trim()}`;
 }
 
 interface TelegramEntity {
@@ -284,61 +360,29 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
       ctx.message.entities ?? ctx.message.caption_entities,
     );
 
-    // Reply handling
-    let discordReplyRef: string | undefined;
-    let replyFieldValue: string | undefined;
-
-    const replyMsg = ctx.message.reply_to_message;
-    /* In Telegram group topics, every non-reply message has reply_to_message pointing to the
-       topic creation message (message_id === message_thread_id). Skip that implicit parent -
-       it is not a real user-initiated reply. Same pattern occurs in channel linked groups. */
-    if (replyMsg && replyMsg.message_id !== ctx.message.message_thread_id) {
-      const botId = bot.botInfo?.id;
-      if (botId && replyMsg.from?.id === botId) {
-        // Bot sent it --> originally from Discord --> attempt native Discord reply
-        const link = findByTelegram(String(ctx.chat.id), replyMsg.message_id);
-        if (link) {
-          discordReplyRef = link.discordMessageId;
-        }
-      } else {
-        // Telegram-authored message --> blockquote field in Discord embed
-        const refName = replyMsg.from ? senderName(replyMsg.from) : 'Someone'; // Fallback if not defined
-        const refRawText =
-          replyMsg.text ??
-          replyMsg.caption ??
-          (replyMsg.sticker
-            ? `[sticker: ${replyMsg.sticker.emoji ?? '🔖'}]`
-            : undefined) ??
-          (replyMsg.photo ? '[photo]' : undefined) ??
-          (replyMsg.video ? '[video]' : undefined) ??
-          (replyMsg.document
-            ? `[file: ${replyMsg.document.file_name ?? 'document'}]`
-            : undefined) ??
-          '[message]';
-        const refText = applyTelegramEntities(
-          refRawText,
-          replyMsg.entities ?? replyMsg.caption_entities,
-        );
-        const excerpt = truncate(refText, 100);
-        replyFieldValue = `**${refName}**: ${excerpt}`;
-      }
-    }
+    const {discordReplyRef, replyFieldValue} = getReplyInfo(
+      bot,
+      ctx.chat.id,
+      ctx.message,
+    );
 
     const forwardSource = getForwardSource(ctx.message);
 
-    // Link-only messages: send as plain text so Discord renders the link embed preview.
+    // Text with links: send as plain text so Discord renders the link embed preview.
+    const plainContent = buildPlainContent({
+      forwardSource,
+      name,
+      replyFieldValue,
+      text,
+    });
     if (
       !ctx.message.photo &&
       !ctx.message.document &&
       !ctx.message.sticker &&
       !ctx.message.video &&
-      isUrlOnly(rawText)
+      containsUrl(rawText) &&
+      plainContent.length <= MAX_MESSAGE_CONTENT
     ) {
-      // Discord suppresses auto link-previews when any embed is present, so put the
-      // "forwarded from" attribution in the content text to keep the embed slot free.
-      const plainContent = forwardSource
-        ? `**${name}** ↪ forwarded from **${forwardSource}**: ${rawText.trim()}`
-        : `**${name}**: ${rawText.trim()}`;
       try {
         const sent = await textChannel.send({
           content: plainContent,
@@ -526,6 +570,28 @@ export function registerTelegramHandlers(bot: Bot, token: string): void {
         ctx.editedMessage.text ?? ctx.editedMessage.caption ?? '',
         ctx.editedMessage.entities ?? ctx.editedMessage.caption_entities,
       );
+
+      // Sent as plain content (text with links) --> rebuild the content, not an embed
+      if (msg.content) {
+        const {replyFieldValue} = getReplyInfo(
+          bot,
+          ctx.chat.id,
+          ctx.editedMessage,
+        );
+        await msg.edit({
+          content: truncate(
+            buildPlainContent({
+              forwardSource: getForwardSource(ctx.editedMessage),
+              name: senderName(ctx.editedMessage.from),
+              replyFieldValue,
+              text: newText,
+            }),
+            MAX_MESSAGE_CONTENT,
+          ),
+        });
+        return;
+      }
+
       // oxlint-disable-next-line prefer-destructuring
       const oldEmbed = msg.embeds[0];
 
